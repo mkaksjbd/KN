@@ -72,7 +72,7 @@ async def stock_aging(request: Request, days_threshold: int = 30,
                 "days_since_movement": days_since,
                 "estimated_value": float(product.get("price", 0)) * float(balance.get("on_hand_qty", 0)),
             })
-    return sorted(result, key=lambda x: (x.get("days_since_movement") or 9999), reverse=True)
+    return sorted(result, key=lambda x: 9999 if x["days_since_movement"] is None else x["days_since_movement"], reverse=True)
 
 
 @router.get("/reports/reservation-funnel")

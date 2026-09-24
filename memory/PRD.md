@@ -324,3 +324,10 @@ referensi komponen baru → React unmount/remount `<input>` → fokus hilang. Po
 - **Uji:** testing agent iteration_59 — backend 15/15 (`backend/tests/test_iter58_marketing_templates_duplicate.py`), frontend 100%.
 - **Catatan build:** `scripts/rebuild_frontend.sh` (nice+ionice) mati diam-diam di pod ini; build langsung berhasil ±40 dtk: `cd /app/frontend && GENERATE_SOURCEMAP=false CI=false DISABLE_ESLINT_PLUGIN=true yarn build`.
 - **Backlog:** Marketing P2 (posting otomatis Meta/TikTok, AI caption, UTM builder → CRM); OD P1 notifikasi WA pelanggan; EPIC 7 multi-currency (ditunda).
+
+### Sesi 2026-09-24 (lanjutan) — T-04 N+1 (2 PERBAIKI) + geser jadwal konten
+- **Impor produk** (`routers/admin.py import_products`): validasi semua baris dulu, lalu satu `find({sku: {$in}})` → peta; SKU kembar dalam file diperlakukan created→updated (dry-run juga). Dry-run 2000 baris < 1 dtk.
+- **Laporan stok mati** (`routers/reporting.py stock_aging`): mutasi terakhir per (produk,gudang) lewat satu agregasi `$group $max timestamp`; produk hanya yang ada di saldo. Output lama vs baru IDENTIK (threshold 0/30 × semua/ent_ksc/ent_kanda). Urutan kini benar untuk days=0.
+- `memory/TRIASE_NPLUS1_2026-09.md` dibuat ulang: PERBAIKI = 0 (232 TIDAK TAHU tersisa).
+- **Geser jadwal konten:** `POST /api/marketing/posts/{pid}/reschedule` (format YYYY-MM-DDTHH:MM, riwayat "jadwal digeser", audit `mkt_post_reschedule`, published ditolak); seret-lepas kartu di tampilan Minggu (`WeekGrid.jsx`), jam tayang tetap.
+- Uji: testing agent iteration_60 — backend 15/15, frontend 100%; gate default hijau.
