@@ -331,3 +331,8 @@ referensi komponen baru → React unmount/remount `<input>` → fokus hilang. Po
 - `memory/TRIASE_NPLUS1_2026-09.md` dibuat ulang: PERBAIKI = 0 (232 TIDAK TAHU tersisa).
 - **Geser jadwal konten:** `POST /api/marketing/posts/{pid}/reschedule` (format YYYY-MM-DDTHH:MM, riwayat "jadwal digeser", audit `mkt_post_reschedule`, published ditolak); seret-lepas kartu di tampilan Minggu (`WeekGrid.jsx`), jam tayang tetap.
 - Uji: testing agent iteration_60 — backend 15/15, frontend 100%; gate default hijau.
+
+### Sesi 2026-09-24 (lanjutan 2) — audit Pustaka Warna
+- Alur nyata terbukti: labdip KN-BLU-01 → ACC Palembang Silk House "Navy 07/NV-07" → produk KTN-NVY-PSH-01 (color_ref + supplier_colors + rnd_supplier) → tab Warna Supplier & modal keterkaitan (data demo kini ada).
+- Diperbaiki: PATCH nama kosong → 400 (dulu menghapus nama); status selain active/inactive → 400 (dulu warna "hilang" dari semua filter); tombol UI mengikuti izin `color.*` (MD create+update kini terlihat); `list_supplier_variants` batch `_products_of_colors` (tanpa N+1).
+- Uji: testing agent iteration_61 — backend 53/53, frontend 100%. Uji lama `tests/test_color_links.py` & `test_iter44_two_color.py` memakai id basi DB lama (bukan regresi).
