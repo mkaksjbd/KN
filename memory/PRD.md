@@ -336,3 +336,10 @@ referensi komponen baru → React unmount/remount `<input>` → fokus hilang. Po
 - Alur nyata terbukti: labdip KN-BLU-01 → ACC Palembang Silk House "Navy 07/NV-07" → produk KTN-NVY-PSH-01 (color_ref + supplier_colors + rnd_supplier) → tab Warna Supplier & modal keterkaitan (data demo kini ada).
 - Diperbaiki: PATCH nama kosong → 400 (dulu menghapus nama); status selain active/inactive → 400 (dulu warna "hilang" dari semua filter); tombol UI mengikuti izin `color.*` (MD create+update kini terlihat); `list_supplier_variants` batch `_products_of_colors` (tanpa N+1).
 - Uji: testing agent iteration_61 — backend 53/53, frontend 100%. Uji lama `tests/test_color_links.py` & `test_iter44_two_color.py` memakai id basi DB lama (bukan regresi).
+
+### Sesi 2026-09-24 (lanjutan 3) — tab "Warna Pelanggan" di Pustaka Warna
+- Permintaan user: tab warna customer terpisah; warna produk eksklusif pelanggan dipisah dari pustaka internal. Label UI "Warna Pelanggan" (gate i18n: customer → Pelanggan).
+- Aturan pemisahan (turunan, tanpa mutasi data): warna = warna pelanggan bila `color_library.exclusive_customer_id` terisi (milik pelanggan, diatur di form Tambah/Edit) ATAU hanya dipakai produk ber-`exclusive_customer_id` (tak ada produk umum; pemakaian lewat `color_ref.id` atau `color_code`). Warna yang juga dipakai produk umum tetap di Internal + tampil di grup pelanggan berlabel "juga dipakai N produk umum".
+- Backend: `color_service.color_usage/is_customer_color/list_customer_colors`, `GET /api/color-library?scope=internal|customer` (+ `is_customer_color` per baris), `GET /api/color-library/customer-colors` (per pelanggan yang terlihat di badan usaha aktif). FE: `CustomerColorsTab.jsx`, KPI Warna Pelanggan, field "Milik pelanggan (eksklusif)" di form, lencana di PantoneFinder.
+- Data demo: `scripts/seed_customer_colors_demo.py` (idempoten) — KN-SJT-01 milik Toko Kain Sejahtera; produk eksklusif Butik Bali Indah SGK-BLI-TSK-01 (KN-GRN-03) & SGK-BLI-UNG-01 (KN-PUR-01) lewat alur labdip → ACC.
+- Uji: iteration_62 backend 11/11, frontend 100%.
