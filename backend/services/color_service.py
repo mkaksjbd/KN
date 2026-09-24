@@ -14,6 +14,7 @@ from core_utils import new_id, now_iso, safe_doc
 
 PREFIX = "col"
 VALID_SYSTEMS = {"TPX", "TCX", "C", "U", "KN"}
+VALID_STATUSES = {"active", "inactive"}
 
 _HEX_RE = re.compile(r"^#?([0-9a-fA-F]{6})$")
 
@@ -121,6 +122,8 @@ async def update_color(color_id: str, patch: Dict[str, Any]) -> Optional[Dict[st
     upd: Dict[str, Any] = {}
     if patch.get("name") is not None:
         upd["name"] = str(patch["name"]).strip()
+        if not upd["name"]:
+            raise ValueError("Nama warna wajib diisi")
     if patch.get("factory_name") is not None:
         upd["factory_name"] = str(patch["factory_name"]).strip()
     if patch.get("hex") is not None:
@@ -134,7 +137,9 @@ async def update_color(color_id: str, patch: Dict[str, Any]) -> Optional[Dict[st
         sysv = str(patch["system"]).strip().upper()
         upd["system"] = sysv if sysv in VALID_SYSTEMS else "KN"
     if patch.get("status") is not None:
-        upd["status"] = str(patch["status"]).strip() or "active"
+        upd["status"] = str(patch["status"]).strip()
+        if upd["status"] not in VALID_STATUSES:
+            raise ValueError("Status warna harus 'active' atau 'inactive'")
     if not upd:
         return safe_doc(await db.color_library.find_one({"id": color_id}, {"_id": 0}))
     upd["updated_at"] = now_iso()
@@ -180,20 +185,26 @@ _COLOR_PROJ = {"_id": 0, "id": 1, "code": 1, "name": 1, "hex": 1, "family": 1, "
 
 async def _products_of_color(color_id: str) -> List[Dict[str, Any]]:
     """Produk master yang lahir dari spesifikasi ber-warna target ini (jalur utama R&D → produk)."""
-    specs = await db.md_specs.find({"color_target.color_id": color_id, "product_id": {"$nin": ["", None]}},
-                                   {"_id": 0, "id": 1, "number": 1, "product_id": 1, "status": 1}).to_list(500)
+    return (await _products_of_colors([color_id])).get(color_id, [])
+
+
+async def _products_of_colors(color_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+    """Versi batch: {color_id: [produk]} — satu query spesifikasi + satu query produk untuk semua warna."""
+    specs = await db.md_specs.find({"color_target.color_id": {"$in": color_ids}, "product_id": {"$nin": ["", None]}},
+                                   {"_id": 0, "id": 1, "number": 1, "product_id": 1, "status": 1,
+                                    "color_target.color_id": 1}).to_list(2000)
     by_pid = {s["product_id"]: s for s in specs}
     if not by_pid:
-        return []
+        return {}
     prods = await db.products.find({"id": {"$in": list(by_pid)}},
                                    {"_id": 0, "id": 1, "sku": 1, "name": 1, "lifecycle": 1, "template_id": 1,
-                                    "variant_attrs": 1, "is_active": 1}).to_list(500)
-    tpl_ids = [p.get("template_id") for p in prods if p.get("template_id")]
-    tpls = {t["id"]: t for t in await db.product_templates.find({"id": {"$in": tpl_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(200)} if tpl_ids else {}
-    out = []
+                                    "variant_attrs": 1, "is_active": 1}).to_list(len(by_pid) + 1)
+    tpl_ids = list({p.get("template_id") for p in prods if p.get("template_id")})
+    tpls = {t["id"]: t for t in await db.product_templates.find({"id": {"$in": tpl_ids}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(tpl_ids) + 1)} if tpl_ids else {}
+    out: Dict[str, List[Dict[str, Any]]] = {}
     for p in prods:
         s = by_pid.get(p["id"], {})
-        out.append({"id": p["id"], "sku": p.get("sku", ""), "name": p.get("name", ""), "lifecycle": p.get("lifecycle", ""),
+        out.setdefault(s["color_target"]["color_id"], []).append({"id": p["id"], "sku": p.get("sku", ""), "name": p.get("name", ""), "lifecycle": p.get("lifecycle", ""),
                     "variant_attrs": p.get("variant_attrs") or {}, "template_name": (tpls.get(p.get("template_id")) or {}).get("name", ""),
                     "spec_id": s.get("id", ""), "spec_number": s.get("number", ""), "via": "spesifikasi"})
     return out
@@ -230,11 +241,12 @@ async def color_links(color_id: str) -> Dict[str, Any]:
 async def list_supplier_variants() -> List[Dict[str, Any]]:
     """Daftar rata semua versi warna supplier — satu baris per (warna internal × supplier)."""
     cols = await db.color_library.find({"supplier_variants.0": {"$exists": True}}, _COLOR_PROJ).to_list(2000)
+    prods_by_color = await _products_of_colors([c["id"] for c in cols]) if cols else {}
+    smp_ids = [v.get("sample_id") for c in cols for v in c.get("supplier_variants") or [] if v.get("sample_id")]
+    smps = {s["id"]: s for s in await db.md_samples.find({"id": {"$in": smp_ids}}, {"_id": 0, "id": 1, "status": 1, "decision.product_sku": 1}).to_list(len(smp_ids) + 1)} if smp_ids else {}
     out: List[Dict[str, Any]] = []
     for c in cols:
-        prods = await _products_of_color(c["id"])
-        smp_ids = [v.get("sample_id") for v in c.get("supplier_variants") or [] if v.get("sample_id")]
-        smps = {s["id"]: s for s in await db.md_samples.find({"id": {"$in": smp_ids}}, {"_id": 0, "id": 1, "status": 1, "decision.product_sku": 1}).to_list(500)} if smp_ids else {}
+        prods = prods_by_color.get(c["id"], [])
         for v in c.get("supplier_variants") or []:
             smp = smps.get(v.get("sample_id"), {})
             sku = (smp.get("decision") or {}).get("product_sku", "")

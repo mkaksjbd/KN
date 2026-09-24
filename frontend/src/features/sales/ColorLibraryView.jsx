@@ -2,7 +2,7 @@
  * ColorLibraryView (M0) — Pustaka Warna (master warna Pantone-style, SHARED).
  * CRUD penuh: cari, filter family/sistem/status, tambah/edit/nonaktifkan warna.
  * Dipakai lintas menu via PantoneFinder. Sumber: /api/color-library.
- * Akses: admin/manager kelola penuh; sales boleh tambah (quick-create).
+ * Akses: mengikuti izin `color.*` (admin/manager penuh; MD tambah+ubah; sales tambah).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Palette, Search, Plus, RefreshCw, Pencil, Ban, X, Save, Layers, History, AlertTriangle } from "lucide-react";
@@ -15,6 +15,7 @@ import LabdipHistoryModal from "../rnd/LabdipHistoryModal";   // MD-06 — riway
 import ColorLinksModal from "./ColorLinksModal";
 import SupplierColorsTab from "./SupplierColorsTab";
 import { askConfirm } from "@/services/confirmService";
+import { can } from "../../config/roles";
 
 const SYSTEMS = [
   { value: "KN", label: "KN (Internal)" },
@@ -26,9 +27,11 @@ const STATUS_OPTS = [
 ];
 
 export default function ColorLibraryView({ currentUser }) {
-  const role = currentUser?.role;
-  const canManage = role === "admin" || role === "manager";
-  const canCreate = canManage || role === "sales";
+  // Tombol mengikuti izin server (color.create/update/delete), bukan daftar peran tetap — MD boleh tambah & ubah.
+  const perms = currentUser?.permissions;
+  const canCreate = can(perms, "color", "create");
+  const canEdit = can(perms, "color", "update");
+  const canDelete = can(perms, "color", "delete");
 
   const [colors, setColors] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -182,10 +185,10 @@ export default function ColorLibraryView({ currentUser }) {
                       </div>
                     )}
                   </div>
-                  {canManage && (
+                  {(canEdit || canDelete) && (
                     <div className="absolute right-1 top-1 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button data-testid={`color-edit-${c.id}`} className="rounded bg-white/90 p-1 shadow-sm hover:bg-white" onClick={() => setModal({ mode: "edit", color: c })} aria-label="Ubah"><Pencil size={12} className="text-[#0058CC]" /></button>
-                      {c.status === "active" && (
+                      {canEdit && <button data-testid={`color-edit-${c.id}`} className="rounded bg-white/90 p-1 shadow-sm hover:bg-white" onClick={() => setModal({ mode: "edit", color: c })} aria-label="Ubah"><Pencil size={12} className="text-[#0058CC]" /></button>}
+                      {canDelete && c.status === "active" && (
                         <button data-testid={`color-delete-${c.id}`} className="rounded bg-white/90 p-1 shadow-sm hover:bg-white" onClick={() => deactivate(c)} aria-label="Nonaktifkan"><Ban size={12} className="text-[#A8221A]" /></button>
                       )}
                     </div>
