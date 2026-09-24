@@ -985,6 +985,7 @@ class ColorCreate(BaseModel):
     system: str = "KN"                    # TPX | TCX | C | U | KN
     family: str = ""                      # kelompok warna (Merah/Biru/...)
     factory_name: str = ""                # MD-07 — nama versi pabrik/supplier untuk warna yang sama
+    exclusive_customer_id: str = ""       # warna milik pelanggan (tab "Warna Pelanggan")
 
 
 class ColorPatch(BaseModel):
@@ -994,3 +995,4 @@ class ColorPatch(BaseModel):
     system: Optional[str] = None
     family: Optional[str] = None
     status: Optional[str] = None
+    exclusive_customer_id: Optional[str] = None  # "" = lepas kepemilikan pelanggan

@@ -54,8 +54,43 @@ def color_distance(rgb1: tuple, rgb2: tuple) -> float:
 
 # ─── CRUD ────────────────────────────────────────────────────────────────────
 
+async def _customer_owner(customer_id: str) -> Dict[str, str]:
+    cid = (customer_id or "").strip()
+    if not cid:
+        return {"exclusive_customer_id": "", "exclusive_customer_name": ""}
+    cust = await db.customers.find_one({"id": cid}, {"_id": 0, "id": 1, "name": 1})
+    if not cust:
+        raise ValueError("Pelanggan tidak ditemukan")
+    return {"exclusive_customer_id": cust["id"], "exclusive_customer_name": cust.get("name", "")}
+
+
+async def color_usage() -> Dict[str, Dict[str, Any]]:
+    """{color_id: {"general": [produk], "exclusive": [produk]}} — dari `color_ref.id` (jalur R&D) atau
+    `color_code` = kode pustaka (produk lama). Produk eksklusif = ber-`exclusive_customer_id`."""
+    by_code = {c["code"]: c["id"] async for c in db.color_library.find({}, {"_id": 0, "id": 1, "code": 1})}
+    out: Dict[str, Dict[str, Any]] = {}
+    async for p in db.products.find(
+            {"$or": [{"color_ref.id": {"$nin": ["", None]}}, {"color_code": {"$nin": ["", None]}}]},
+            {"_id": 0, "id": 1, "sku": 1, "name": 1, "lifecycle": 1, "color_ref.id": 1, "color_code": 1,
+             "exclusive_customer_id": 1, "exclusive_customer_name": 1, "special_order_number": 1, "supplier_colors": 1}):
+        cid = (p.get("color_ref") or {}).get("id") or by_code.get(p.get("color_code") or "")
+        if not cid:
+            continue
+        slot = out.setdefault(cid, {"general": [], "exclusive": []})
+        slot["exclusive" if p.get("exclusive_customer_id") else "general"].append(p)
+    return out
+
+
+def is_customer_color(color: Dict[str, Any], usage: Dict[str, Any]) -> bool:
+    """Warna pelanggan = dimiliki pelanggan, ATAU hanya dipakai produk eksklusif (tak satu pun produk umum)."""
+    if color.get("exclusive_customer_id"):
+        return True
+    u = usage.get(color["id"]) or {}
+    return bool(u.get("exclusive")) and not u.get("general")
+
+
 async def list_colors(q: str = "", family: str = "", system: str = "",
-                      status: str = "active") -> List[Dict[str, Any]]:
+                      status: str = "active", scope: str = "") -> List[Dict[str, Any]]:
     query: Dict[str, Any] = {}
     if status and status != "all":
         query["status"] = status
@@ -81,9 +116,57 @@ async def list_colors(q: str = "", family: str = "", system: str = "",
                 if not rd.get("result") and rd.get("due_date") and rd["due_date"] < today)
         if n:
             overdue[cid] = overdue.get(cid, 0) + n
+    usage = await color_usage()
     for r in rows:
         r["labdip_overdue_count"] = overdue.get(r["id"], 0)
+        r["is_customer_color"] = is_customer_color(r, usage)
+    if scope == "internal":
+        rows = [r for r in rows if not r["is_customer_color"]]
+    elif scope == "customer":
+        rows = [r for r in rows if r["is_customer_color"]]
     return [safe_doc(r) for r in rows]
+
+
+async def list_customer_colors(visible_customer_ids: Optional[set] = None, customer_id: str = "") -> List[Dict[str, Any]]:
+    """Tab "Warna Pelanggan": per pelanggan — warna milik pelanggan + warna yang dipakai produk eksklusifnya."""
+    usage = await color_usage()
+    colors = {c["id"]: c async for c in db.color_library.find({}, _COLOR_PROJ | {"exclusive_customer_id": 1, "exclusive_customer_name": 1})}
+    groups: Dict[str, Dict[str, Any]] = {}
+
+    def slot(cid: str, cname: str, color: Dict[str, Any]) -> Dict[str, Any]:
+        g = groups.setdefault(cid, {"customer_id": cid, "customer_name": cname, "colors": {}})
+        if not g["customer_name"] and cname:
+            g["customer_name"] = cname
+        u = usage.get(color["id"]) or {}
+        return g["colors"].setdefault(color["id"], {
+            **{k: v for k, v in color.items() if k != "supplier_variants"},
+            "owned": color.get("exclusive_customer_id") == cid, "products": [],
+            "general_products_count": len(u.get("general") or []),
+            "supplier_variants_count": len(color.get("supplier_variants") or [])})
+
+    for c in colors.values():
+        if c.get("exclusive_customer_id"):
+            slot(c["exclusive_customer_id"], c.get("exclusive_customer_name", ""), c)
+    for color_id, u in usage.items():
+        c = colors.get(color_id)
+        if not c:
+            continue
+        for p in u.get("exclusive") or []:
+            row = slot(p["exclusive_customer_id"], p.get("exclusive_customer_name", ""), c)
+            row["products"].append({"id": p["id"], "sku": p.get("sku", ""), "name": p.get("name", ""),
+                                    "lifecycle": p.get("lifecycle", ""), "special_order_number": p.get("special_order_number", ""),
+                                    "supplier_colors": [{"supplier_name": s.get("supplier_name", ""), "supplier_color_name": s.get("supplier_color_name", ""),
+                                                         "supplier_color_code": s.get("supplier_color_code", "")} for s in p.get("supplier_colors") or []]})
+    names = {x["id"]: x.get("name", "") async for x in db.customers.find({"id": {"$in": list(groups)}}, {"_id": 0, "id": 1, "name": 1})}
+    out = []
+    for cid, g in groups.items():
+        if visible_customer_ids is not None and cid not in visible_customer_ids:
+            continue
+        if customer_id and cid != customer_id:
+            continue
+        rows = sorted(g["colors"].values(), key=lambda r: (not r["owned"], r.get("code", "")))
+        out.append({"customer_id": cid, "customer_name": names.get(cid) or g["customer_name"] or cid, "colors": rows})
+    return sorted(out, key=lambda g: g["customer_name"].lower())
 
 
 async def create_color(data: Dict[str, Any], actor_name: str = "") -> Dict[str, Any]:
@@ -109,6 +192,7 @@ async def create_color(data: Dict[str, Any], actor_name: str = "") -> Dict[str, 
         "hex": f"#{hex_norm}",
         "system": system,
         "family": (data.get("family") or "").strip() or "Lainnya",
+        **(await _customer_owner(data.get("exclusive_customer_id") or "")),
         "status": "active",
         "created_by": actor_name,
         "created_at": now_iso(),
@@ -140,6 +224,8 @@ async def update_color(color_id: str, patch: Dict[str, Any]) -> Optional[Dict[st
         upd["status"] = str(patch["status"]).strip()
         if upd["status"] not in VALID_STATUSES:
             raise ValueError("Status warna harus 'active' atau 'inactive'")
+    if patch.get("exclusive_customer_id") is not None:
+        upd.update(await _customer_owner(patch["exclusive_customer_id"]))
     if not upd:
         return safe_doc(await db.color_library.find_one({"id": color_id}, {"_id": 0}))
     upd["updated_at"] = now_iso()
@@ -180,7 +266,7 @@ async def nearest(hex_value: str, limit: int = 8) -> Dict[str, Any]:
 
 # ── Keterkaitan warna internal ↔ versi supplier ↔ master produk ↔ sample R&D ────────────────
 _COLOR_PROJ = {"_id": 0, "id": 1, "code": 1, "name": 1, "hex": 1, "family": 1, "system": 1, "status": 1,
-               "factory_name": 1, "supplier_variants": 1}
+               "factory_name": 1, "supplier_variants": 1, "exclusive_customer_id": 1, "exclusive_customer_name": 1}
 
 
 async def _products_of_color(color_id: str) -> List[Dict[str, Any]]:

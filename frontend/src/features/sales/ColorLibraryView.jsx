@@ -5,7 +5,7 @@
  * Akses: mengikuti izin `color.*` (admin/manager penuh; MD tambah+ubah; sales tambah).
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Palette, Search, Plus, RefreshCw, Pencil, Ban, X, Save, Layers, History, AlertTriangle } from "lucide-react";
+import { Palette, Search, Plus, RefreshCw, Pencil, Ban, X, Save, Layers, History, AlertTriangle, Users } from "lucide-react";
 import axios, { API } from "../../services/apiClient";
 import KNSelect from "../../components/KNSelect";
 import ErrorNotice from "../../components/ErrorNotice";
@@ -14,6 +14,7 @@ import { openRnd } from "../rnd/rndDeepLink";
 import LabdipHistoryModal from "../rnd/LabdipHistoryModal";   // MD-06 — riwayat labdip per warna
 import ColorLinksModal from "./ColorLinksModal";
 import SupplierColorsTab from "./SupplierColorsTab";
+import CustomerColorsTab from "./CustomerColorsTab";
 import { askConfirm } from "@/services/confirmService";
 import { can } from "../../config/roles";
 
@@ -43,31 +44,36 @@ export default function ColorLibraryView({ currentUser }) {
   const [modal, setModal] = useState(null); // {mode, color}
   const [history, setHistory] = useState(null); // MD-06 — {colorId, label}
   const [variants, setVariants] = useState(null); // {colorId, supplierId} → modal keterkaitan
-  const [tab, setTab] = useState("internal"); // internal | supplier
+  const [tab, setTab] = useState("internal"); // internal | customer | supplier
+  const [reloadKey, setReloadKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const res = await axios.get(`${API}/color-library`, { params: { status } });
       setColors(Array.isArray(res.data) ? res.data : []);
+      setReloadKey((k) => k + 1);
     } catch (e) {
       setError(e.response?.data?.detail || "Gagal memuat pustaka warna.");
     } finally { setLoading(false); }
   }, [status]);
   useEffect(() => { load(); }, [load]);
 
+  // Warna milik pelanggan / hanya dipakai produk eksklusif → tab "Warna Pelanggan", bukan Warna Internal.
+  const internal = useMemo(() => colors.filter((c) => !c.is_customer_color), [colors]);
+  const customerCount = colors.length - internal.length;
   const families = useMemo(
-    () => [...new Set(colors.map((c) => c.family).filter(Boolean))].sort(), [colors]);
+    () => [...new Set(internal.map((c) => c.family).filter(Boolean))].sort(), [internal]);
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return colors.filter((c) => {
+    return internal.filter((c) => {
       if (family && c.family !== family) return false;
       if (system && c.system !== system) return false;
       if (s && !`${c.code}${c.name}${c.factory_name || ""}${c.family}`.toLowerCase().includes(s)) return false;
       return true;
     });
-  }, [colors, q, family, system]);
+  }, [internal, q, family, system]);
 
   const deactivate = async (c) => {
     const ok = await askConfirm({
@@ -87,9 +93,10 @@ export default function ColorLibraryView({ currentUser }) {
   return (
     <div data-testid="color-library-view">
       <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Kpi testId="color-kpi-total" label="Total Warna" value={colors.length} icon={Palette} />
+        <Kpi testId="color-kpi-total" label="Warna Internal" value={internal.length} icon={Palette} />
         <Kpi testId="color-kpi-family" label="Family" value={families.length} icon={Layers} tone="#6B219A" />
-        <div className="section-card hidden lg:col-span-2 lg:block">
+        <Kpi testId="color-kpi-customer" label="Warna Pelanggan" value={customerCount} icon={Users} tone="#B45309" />
+        <div className="section-card hidden lg:block">
           <div className="section-body flex items-center gap-3 py-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#EAF2FF]"><Palette size={17} className="text-[#0058CC]" /></div>
             <p className="text-[11px] leading-tight text-[#6B6B73]">Master warna dipakai di <b>Produk</b>, <b>Template Varian</b>, <b>POS</b> & <b>Makloon</b>. Pilih warna via <b>PantoneFinder</b>, bukan teks bebas.</p>
@@ -99,17 +106,20 @@ export default function ColorLibraryView({ currentUser }) {
 
       <div className="section-card">
         <div className="flex flex-wrap items-center gap-1.5 border-b border-[#EFF0F2] px-3 pt-2.5" data-testid="color-subtabs">
-          {[["internal", "Warna Internal", Palette, colors.length], ["supplier", "Warna Supplier", Layers, colors.reduce((n, c) => n + (c.supplier_variants || []).length, 0)]].map(([k, label, Icon, n]) => (
+          {[["internal", "Warna Internal", Palette, internal.length], ["customer", "Warna Pelanggan", Users, customerCount], ["supplier", "Warna Supplier", Layers, colors.reduce((n, c) => n + (c.supplier_variants || []).length, 0)]].map(([k, label, Icon, n]) => (
             <button key={k} type="button" data-testid={`color-subtab-${k}`} onClick={() => setTab(k)}
               className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-[12px] font-semibold transition-colors ${tab === k ? "border-[#0058CC] text-[#0058CC]" : "border-transparent text-[#6B6B73] hover:text-[#1C1C1E]"}`}>
               <Icon size={13} /> {label} <span className="rounded bg-[#F5F5F7] px-1.5 text-[10px] text-[#6B6B73]">{n}</span>
             </button>
           ))}
           <p className="ml-auto hidden pb-2 text-[10.5px] text-[#8E8E93] md:block">
-            {tab === "internal" ? "Warna standar KN (Pantone-style) — acuan produk & labdip." : "Nama/kode warna versi tiap supplier — lahir dari labdip ACC, tertaut ke warna internal & produk."}
+            {tab === "internal" ? "Warna standar KN (Pantone-style) — acuan produk & labdip."
+              : tab === "customer" ? "Warna milik pelanggan & warna produk eksklusif — dipisah per pelanggan."
+                : "Nama/kode warna versi tiap supplier — lahir dari labdip ACC, tertaut ke warna internal & produk."}
           </p>
         </div>
-        {tab === "supplier" ? <SupplierColorsTab onOpenLinks={(colorId, supplierId) => setVariants({ colorId, supplierId })} /> : (<>
+        {tab === "supplier" ? <SupplierColorsTab onOpenLinks={(colorId, supplierId) => setVariants({ colorId, supplierId })} />
+          : tab === "customer" ? <CustomerColorsTab reloadKey={reloadKey} onOpenLinks={(colorId, supplierId) => setVariants({ colorId, supplierId })} /> : (<>
         <div className="section-head flex-wrap gap-2">
           <div className="relative min-w-[180px] flex-1">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9A9BA3]" />
@@ -228,7 +238,12 @@ function ColorModal({ mode, color, onClose, onSaved, onError }) {
   const [form, setForm] = useState({
     code: color?.code || "", name: color?.name || "", factory_name: color?.factory_name || "", hex: color?.hex || "#",
     system: color?.system || "KN", family: color?.family || "", status: color?.status || "active",
+    exclusive_customer_id: color?.exclusive_customer_id || "",
   });
+  const [customers, setCustomers] = useState([]);
+  useEffect(() => {
+    axios.get(`${API}/customers`).then((r) => setCustomers(Array.isArray(r.data) ? r.data : r.data?.items || [])).catch(() => {});
+  }, []);
   const [saving, setSaving] = useState(false);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
   const hexValid = /^#[0-9a-fA-F]{6}$/.test(form.hex);
@@ -241,6 +256,7 @@ function ColorModal({ mode, color, onClose, onSaved, onError }) {
       if (mode === "edit") {
         await axios.patch(`${API}/color-library/${color.id}`, {
           name: form.name, factory_name: form.factory_name, hex: form.hex, system: form.system, family: form.family, status: form.status,
+          exclusive_customer_id: form.exclusive_customer_id,
         });
       } else {
         await axios.post(`${API}/color-library`, form);
@@ -286,6 +302,11 @@ function ColorModal({ mode, color, onClose, onSaved, onError }) {
             </Field>
             <Field label="Family">
               <input data-testid="color-form-family" className="field" placeholder="Biru / Merah / …" value={form.family} onChange={set("family")} />
+            </Field>
+            <Field label="Milik pelanggan (eksklusif)">
+              <KNSelect data-testid="color-form-customer" className="field" value={form.exclusive_customer_id} searchable
+                onValueChange={(v) => setForm({ ...form, exclusive_customer_id: v })}
+                options={[{ value: "", label: "— Warna internal (umum) —" }, ...customers.map((c) => ({ value: c.id, label: c.name }))]} />
             </Field>
             {mode === "edit" && (
               <Field label="Status">

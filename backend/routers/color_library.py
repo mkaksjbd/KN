@@ -4,11 +4,13 @@ Koleksi `color_library` = SHARED (tak di-scope entitas), mirip products/uoms.
 Endpoint auth wajib via require_permission resource "color".
 Respons = ARRAY/OBJEK telanjang (kontrak KN, tanpa envelope).
 """
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException, Request, Query
 
+from db import db
 from dependencies import require_permission, audit
+from entity_scope import entity_ctx, resolve_list_scope
 from schemas import ColorCreate, ColorPatch
 from services import color_service as svc
 
@@ -22,9 +24,20 @@ async def list_color_library(
     family: str = Query(""),
     system: str = Query(""),
     status: str = Query("active"),
+    scope: str = Query("", description="internal | customer | kosong = semua"),
 ) -> List[Dict[str, Any]]:
     await require_permission(request, "color", "view")
-    return await svc.list_colors(q=q, family=family, system=system, status=status)
+    return await svc.list_colors(q=q, family=family, system=system, status=status, scope=scope)
+
+
+@router.get("/color-library/customer-colors")
+async def list_customer_colors(request: Request, customer_id: str = Query(""),
+                               entity_id: Optional[str] = Query(None)) -> List[Dict[str, Any]]:
+    """Tab "Warna Pelanggan": per pelanggan (yang terlihat di badan usaha aktif) — warna milik & warna produk eksklusif."""
+    await require_permission(request, "color", "view")
+    ctx = await entity_ctx(request)
+    visible = {c["id"] async for c in db.customers.find(resolve_list_scope("customers", {}, ctx, entity_id), {"_id": 0, "id": 1})}
+    return await svc.list_customer_colors(visible, customer_id)
 
 
 @router.get("/color-library/nearest")
@@ -74,7 +87,8 @@ async def patch_color(color_id: str, payload: ColorPatch, request: Request) -> D
         raise HTTPException(status_code=400, detail=str(e))
     if color is None:
         raise HTTPException(status_code=404, detail="Warna tidak ditemukan")
-    await audit(actor.get("name", ""), "color_updated", "color", color_id, {})
+    await audit(actor.get("name", ""), "color_updated", "color", color_id,
+                {k: v for k, v in payload.model_dump(exclude_none=True).items() if k in ("status", "exclusive_customer_id")})
     return color
 
 

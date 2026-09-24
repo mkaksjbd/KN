@@ -215,6 +215,7 @@ function PantonePickerModal({ selectedCode, allowCreate, onClose, onPick }) {
                     <span className="h-8 w-8 rounded-md border border-[#E5E5EA]" style={{ backgroundColor: c.hex }} />
                     <span className="mt-1 block w-full truncate text-[10.5px] font-semibold text-[#1C1C1E]">{c.code}</span>
                     <span className="block w-full truncate text-[9.5px] text-[#6B6B73]">{c.name}</span>
+                    {c.is_customer_color && <span className="mt-0.5 block w-full truncate rounded bg-[#FEF3C7] px-1 text-[8.5px] font-bold text-[#92400E]" data-testid={`pantone-customer-badge-${c.id}`} title="Warna pelanggan (milik pelanggan / produk eksklusif)">{c.exclusive_customer_name ? `Eksklusif ${c.exclusive_customer_name}` : "Warna pelanggan"}</span>}
                     {isNearest && <span className="mt-0.5 rounded-full bg-[#EAF2FF] px-1.5 text-[9px] font-bold text-[#0058CC]">Terdekat</span>}
                   </button>
                 );
