@@ -313,3 +313,14 @@ referensi komponen baru → React unmount/remount `<input>` → fokus hilang. Po
 - **POC E-9 (`backend/test_core_rantai_retur_poc.py`):** 44/44 PASS; cleanup kini juga menghapus `turn_marks` (doc_id POC) & `roll_cost_history` (roll POC) → `ukur_residu_poc.py --only e-9` = nol residu.
 - **Smoke test agent:** login, /api/, interco settlements (transfer·posted), design-gallery (approved), interco transactions, login UI → semua hijau (`test_reports/iteration_smoke_restore.json`).
 - **Berikutnya (dari backlog):** 13 POC drift merah pre-existing, INV-GATE-01/auth_coverage residu POC lain, audit_sales_roles_ux, ux_audit --strict, audit_i18n_id.
+
+
+### Sesi 2026-09-24 — residu POC NOL + Marketing P1 (template · duplikasi · tampilan minggu)
+**Problem statement:** lanjutkan repo github.com/pandeyoga/KNHOST dari titik henti `prune_orphan_turn_marks()`. Pilihan user: (a) selesaikan helper, residu POC G7, `gate.sh --full` hijau; (b) lanjut fitur berikutnya dari PRD.
+- **Lingkungan:** clone → /app (.env dipertahankan; `backend/.env` + CORS_ORIGINS eksplisit & SESSION_COOKIE_SECURE). pip: `emergentintegrations` dipasang terpisah (konflik litellm di requirements). `seed_realistic.py` + `seed_e9_chain_demo.py`.
+- **Residu POC → nol di semua 38 POC gate** (`scripts/ukur_residu_poc.py`): `poc_stock_guard.py` + `snapshot_new_ids()/purge_new_ids()/with_journal_cleanup()` (sidik `_id` audit_logs/notifications SEBELUM login, sapu sesudah). Dipasang di G-0, G-1, G-2, G-3, G-4, G-7, G-8, G-9, F, F-1, F US3/11/12, D (blok `__main__`) + fixture G-6/G-6b (juga `roll_cost_history`). `prune_orphan_turn_marks` sudah terpasang di 7 POC.
+- **Gate:** `bash scripts/gate.sh --full` → **HIJAU** (129 PASS, 0 FAIL). Default gate hijau setelah fitur marketing.
+- **Marketing P1:** `POST /api/marketing/posts/{pid}/duplicate {publish_at}` (salinan status Ide, `duplicated_from`, kampanye/akun hanya bila entitas sama); koleksi `mkt_templates` per badan usaha (`GET/POST /api/marketing/templates`, `POST …/{tid}/use` used_count, `DELETE …/{tid}` pembuat/admin/manager). FE: mode **Minggu** di Kalender Konten (`WeekGrid.jsx`), `TemplatePicker.jsx` di form konten baru, `DuplicatePostModal.jsx` + tombol "Simpan sebagai template" di rincian.
+- **Uji:** testing agent iteration_59 — backend 15/15 (`backend/tests/test_iter58_marketing_templates_duplicate.py`), frontend 100%.
+- **Catatan build:** `scripts/rebuild_frontend.sh` (nice+ionice) mati diam-diam di pod ini; build langsung berhasil ±40 dtk: `cd /app/frontend && GENERATE_SOURCEMAP=false CI=false DISABLE_ESLINT_PLUGIN=true yarn build`.
+- **Backlog:** Marketing P2 (posting otomatis Meta/TikTok, AI caption, UTM builder → CRM); OD P1 notifikasi WA pelanggan; EPIC 7 multi-currency (ditunda).
