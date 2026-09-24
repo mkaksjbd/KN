@@ -152,17 +152,21 @@ async def import_products(
     if not rows:
         raise HTTPException(status_code=400, detail="File kosong atau format tidak dikenal")
     results = {"total": len(rows), "created": 0, "updated": 0, "errors": [], "dry_run": dry_run}
-    for idx, row in enumerate(rows):
-        product_data, error = _validate_and_enrich_product(row, idx)
+    parsed = [(idx, *_validate_and_enrich_product(row, idx)) for idx, row in enumerate(rows)]
+    # T-04: satu query $in untuk semua SKU (bukan find_one per baris).
+    skus = list({p["sku"] for _, p, err in parsed if not err})
+    by_sku = {p["sku"]: safe_doc(p) for p in await db.products.find({"sku": {"$in": skus}}, {"_id": 0}).to_list(len(skus) + 1)}
+    for idx, product_data, error in parsed:
         if error:
             results["errors"].append(error)
             continue
-        existing = safe_doc(await db.products.find_one({"sku": product_data["sku"]}, {"_id": 0}))
+        existing = by_sku.get(product_data["sku"])
         if dry_run:
             if existing:
                 results["updated"] += 1
             else:
                 results["created"] += 1
+                by_sku[product_data["sku"]] = product_data
             continue
         if existing:
             # Never overwrite R&D-approved identity or managed media from a flat CSV.
@@ -176,7 +180,7 @@ async def import_products(
             if existing.get('media'):
                 update['image'] = existing.get('image', '')
             try:
-                await save_product(update, actor=actor['name'], existing=existing, strict=False)
+                by_sku[product_data["sku"]] = await save_product(update, actor=actor['name'], existing=existing, strict=False)
                 results["updated"] += 1
             except HTTPException as exc:
                 results['errors'].append(f"Baris {idx + 2}: {exc.detail}")
@@ -184,7 +188,7 @@ async def import_products(
             product_data.update({"id": new_id("prod"), "created_at": now_iso(), "updated_at": now_iso()})
             from services.product_variant_service import save_product
             try:
-                await save_product(product_data, actor=actor['name'], strict=False)
+                by_sku[product_data["sku"]] = await save_product(product_data, actor=actor['name'], strict=False)
                 results["created"] += 1
             except HTTPException as exc:
                 results['errors'].append(f"Baris {idx + 2}: {exc.detail}")

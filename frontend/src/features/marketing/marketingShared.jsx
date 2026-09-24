@@ -61,6 +61,7 @@ export const mktApi = {
   updateCampaign: (id, b) => axios.patch(`${API}/marketing/campaigns/${id}`, b).then((r) => r.data),
   assets: (q) => axios.get(`${API}/marketing/assets`, { params: { q } }).then((r) => r.data),
   analytics: (params) => axios.get(`${API}/marketing/analytics`, { params }).then((r) => r.data),
+  reschedule: (id, publish_at) => axios.post(`${API}/marketing/posts/${id}/reschedule`, { publish_at }).then((r) => r.data),
   duplicate: (id, b) => axios.post(`${API}/marketing/posts/${id}/duplicate`, b).then((r) => r.data),
   templates: () => axios.get(`${API}/marketing/templates`).then((r) => r.data),
   createTemplate: (b) => axios.post(`${API}/marketing/templates`, b).then((r) => r.data),

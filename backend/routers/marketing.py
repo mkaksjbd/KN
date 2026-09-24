@@ -8,6 +8,7 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from db import db
+from core_utils import now_iso
 from dependencies import audit, require_permission
 from entity_scope import assert_entity_access, entity_ctx, resolve_list_scope
 from services import marketing_service as mkt
@@ -216,6 +217,10 @@ class DuplicateBody(BaseModel):
     publish_at: str = ""
 
 
+class RescheduleBody(BaseModel):
+    publish_at: str
+
+
 @router.get("/marketing/templates")
 async def list_templates(request: Request, entity_id: Optional[str] = None) -> List[Dict[str, Any]]:
     await require_permission(request, "marketing", "view")
@@ -316,6 +321,29 @@ async def update_post(pid: str, payload: PostBody, request: Request) -> Dict[str
         return await _with_entity(await mkt.update_post(pid, payload.model_dump(exclude_unset=True), user))
     except mkt.MarketingError as exc:
         raise _err(exc) from exc
+
+
+@router.post("/marketing/posts/{pid}/reschedule")
+async def reschedule_post(pid: str, payload: RescheduleBody, request: Request) -> Dict[str, Any]:
+    """Geser jadwal tayang (seret-lepas di tampilan Minggu) — tercatat di riwayat & audit."""
+    import re
+    user = await require_permission(request, "marketing", "update")
+    cur = await _post_or_404(pid, request)
+    new_at = payload.publish_at.strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}", new_at):
+        raise HTTPException(status_code=400, detail="Format jadwal harus YYYY-MM-DDTHH:MM.")
+    old_at = cur.get("publish_at") or ""
+    if new_at == old_at:
+        return cur
+    try:
+        await mkt.update_post(pid, {"publish_at": new_at}, user)
+    except mkt.MarketingError as exc:
+        raise _err(exc) from exc
+    await db.mkt_posts.update_one({"id": pid}, {"$push": {"history": {
+        "status": cur.get("status", ""), "from": cur.get("status", ""), "at": now_iso(), "by": user.get("name", ""),
+        "note": f"jadwal digeser {old_at.replace('T', ' ') or '(belum dijadwalkan)'} → {new_at.replace('T', ' ')}"}}})
+    await audit(user.get("name", ""), "mkt_post_reschedule", "mkt_post", pid, {"from": old_at, "to": new_at})
+    return await _post_or_404(pid, request)
 
 
 @router.post("/marketing/posts/{pid}/duplicate")

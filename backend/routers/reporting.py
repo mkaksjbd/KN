@@ -15,7 +15,6 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Request, Query
 from db import db
 from dependencies import require_permission
-from core_utils import safe_doc
 from entity_scope import entity_ctx, resolve_list_scope
 from services import sales_ownership   # FASE E-8 (E8.4/US11) — "Pesanan Saya"
 logger = logging.getLogger(__name__)
@@ -33,20 +32,22 @@ async def stock_aging(request: Request, days_threshold: int = 30,
     bal_scope = resolve_list_scope("inventory_balances", {"on_hand_qty": {"$gt": 0}}, ctx, entity_id)
     balances = await db.inventory_balances.find(bal_scope, {"_id": 0}).to_list(1000)
     warehouses = {w["id"]: w for w in await db.warehouses.find({}, {"_id": 0}).to_list(100)}
-    products = {p["id"]: p for p in await db.products.find({}, {"_id": 0}).to_list(1000)}
+    pids = list({b["product_id"] for b in balances})
+    products = {p["id"]: p for p in await db.products.find({"id": {"$in": pids}}, {"_id": 0}).to_list(len(pids) + 1)}
+    # T-04: mutasi terakhir per (produk, gudang) dalam SATU agregasi, bukan find_one per saldo.
+    mv_scope = resolve_list_scope("inventory_movements", {"product_id": {"$in": pids}}, ctx, entity_id)
+    last_by_key = {
+        (r["_id"]["p"], r["_id"]["w"]): r["last"]
+        async for r in db.inventory_movements.aggregate([
+            {"$match": mv_scope},
+            {"$group": {"_id": {"p": "$product_id", "w": "$warehouse_id"}, "last": {"$max": "$timestamp"}}},
+        ])
+    }
     result = []
     for balance in balances:
         product = products.get(balance["product_id"], {})
         warehouse = warehouses.get(balance["warehouse_id"], {})
-        mv_scope = resolve_list_scope(
-            "inventory_movements",
-            {"product_id": balance["product_id"], "warehouse_id": balance["warehouse_id"]},
-            ctx, entity_id,
-        )
-        last_movement = safe_doc(
-            await db.inventory_movements.find_one(mv_scope, {"_id": 0}, sort=[("timestamp", -1)])
-        )
-        last_movement_date = last_movement.get("timestamp") if last_movement else None
+        last_movement_date = last_by_key.get((balance["product_id"], balance["warehouse_id"]))
         days_since = None
         if last_movement_date:
             try:

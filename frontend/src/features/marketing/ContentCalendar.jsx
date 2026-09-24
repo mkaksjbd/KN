@@ -22,6 +22,7 @@ export default function ContentCalendar({ currentUser, selectedEntity = "all" })
   const [detailId, setDetailId] = useState("");
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [moveMsg, setMoveMsg] = useState(null);
   const multi = selectedEntity === "all";
 
   const load = useCallback(async () => {
@@ -52,6 +53,17 @@ export default function ContentCalendar({ currentUser, selectedEntity = "all" })
   const today = new Date().toISOString().slice(0, 10);
   const unscheduled = byDay.__unscheduled || [];
   const canCreate = ["admin", "manager", "designer", "sales", "sales_admin"].includes(currentUser?.role);
+  const movePost = async (post, day) => {
+    const to = `${day}T${post.publish_at.slice(11, 16) || "10:00"}`;
+    setPosts((l) => l.map((p) => (p.id === post.id ? { ...p, publish_at: to } : p)));
+    try {
+      await mktApi.reschedule(post.id, to);
+      setMoveMsg({ ok: true, text: `"${post.title}" dipindah ke ${Number(day.slice(8))}/${Number(day.slice(5, 7))} jam ${to.slice(11)}.` });
+    } catch (e) {
+      setMoveMsg({ ok: false, text: e.response?.data?.detail || "Gagal memindah jadwal." });
+    }
+    load();
+  };
 
   return (
     <div className="grid gap-3" data-testid="mkt-calendar">
@@ -82,7 +94,10 @@ export default function ContentCalendar({ currentUser, selectedEntity = "all" })
       </div>
 
       {isWeek ? (
-        <WeekGrid week={week} posts={posts} multi={multi} canCreate={canCreate} onCreate={(day) => setCreating({ publish_at: `${day}T10:00` })} onOpen={setDetailId} />
+        <div className="grid gap-1.5">
+          {moveMsg && <p className={`text-[11px] ${moveMsg.ok ? "text-[#1B7F4B]" : "text-[#C0392B]"}`} data-testid="mkt-move-msg">{moveMsg.text}</p>}
+          <WeekGrid week={week} posts={posts} multi={multi} canCreate={canCreate} onCreate={(day) => setCreating({ publish_at: `${day}T10:00` })} onOpen={setDetailId} onMove={canCreate ? movePost : null} />
+        </div>
       ) : mode === "month" ? (
         <div className="overflow-hidden rounded-xl border border-[#E5E5EA] bg-white" data-testid="mkt-month-grid">
           <div className="grid grid-cols-7 border-b border-[#EFF0F2] bg-[#FAFBFC] text-center text-[10px] font-bold uppercase tracking-wide text-[#8E8E93]">{DOW.map((d) => <div key={d} className="py-1.5">{d}</div>)}</div>
